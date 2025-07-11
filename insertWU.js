@@ -39,20 +39,27 @@ async function run() {
 // 1. 클릭 요약 통계
 async function insertClickSummary(type, start, end) {
   const q = `
-  INSERT INTO klicklab.weekly_click_summary
-  SELECT
-    toDate('${start}') AS date,
-    '${type}' AS segment_type,
-    segment_value,
-    sum(total_clicks) AS total_clicks,
-    sum(total_users) AS total_users,
-    round(sum(total_clicks) / sum(total_users), 1) AS avg_clicks_per_user,
-    sdk_key
-  FROM klicklab.daily_click_summary
-  WHERE segment_type = '${type}'
-    AND date >= toDate('${start}')
-    AND date < toDate('${end}')
-  GROUP BY segment_value, sdk_key
+    INSERT INTO klicklab.weekly_click_summary
+    SELECT
+      toDate('${start}') AS date,
+      '${type}' AS segment_type,
+      segment_value,
+      total_clicks,
+      total_users,
+      round(total_clicks / nullIf(total_users, 0), 1) AS avg_clicks_per_user,
+      sdk_key
+    FROM (
+      SELECT
+        segment_value,
+        sum(total_clicks) AS total_clicks,
+        sum(total_users) AS total_users,
+        sdk_key
+      FROM klicklab.daily_click_summary
+      WHERE segment_type = '${type}'
+        AND date >= toDate('${start}')
+        AND date < toDate('${end}')
+      GROUP BY segment_value, sdk_key
+    )
   `;
   await clickhouse.command({ query: q });
 }
@@ -60,27 +67,39 @@ async function insertClickSummary(type, start, end) {
 // 2. Top 클릭 요소 (Top 3)
 async function insertTopElements(type, start, end) {
   const q = `
-  INSERT INTO klicklab.weekly_top_elements
-  SELECT *
-  FROM (
+    INSERT INTO klicklab.weekly_top_elements
     SELECT
-      toDate('${start}') AS date,
+      date,
       '${type}' AS segment_type,
       segment_value,
       element,
-      sum(total_clicks) AS total_clicks,
-      sum(user_count) AS user_count,
-      row_number() OVER (
-        PARTITION BY sdk_key, segment_value ORDER BY sum(total_clicks) DESC
-      ) AS rank,
+      total_clicks,
+      user_count,
+      rank,
       sdk_key
-    FROM klicklab.daily_top_elements
-    WHERE segment_type = '${type}'
-      AND date >= toDate('${start}')
-      AND date < toDate('${end}')
-    GROUP BY segment_value, element, sdk_key
-  )
-  WHERE rank <= 3
+    FROM (
+      SELECT
+        *,
+        row_number() OVER (
+          PARTITION BY sdk_key, segment_value
+          ORDER BY total_clicks DESC
+        ) AS rank
+      FROM (
+        SELECT
+          toDate('${start}') AS date,
+          segment_value,
+          element,
+          sum(total_clicks) AS total_clicks,
+          sum(user_count) AS user_count,
+          sdk_key
+        FROM klicklab.daily_top_elements
+        WHERE segment_type = '${type}'
+          AND date >= toDate('${start}')
+          AND date < toDate('${end}')
+        GROUP BY segment_value, element, sdk_key
+      )
+    ) AS ranked
+    WHERE rank <= 3
   `;
   await clickhouse.command({ query: q });
 }
@@ -88,25 +107,24 @@ async function insertTopElements(type, start, end) {
 // 3. 사용자 분포
 async function insertUserDistribution(type, start, end) {
   const q = `
-  INSERT INTO klicklab.weekly_user_distribution
-  SELECT
-    toDate('${start}') AS date,
-    '${type}' AS segment_type,
-    segment_value,
-    dist_type,
-    dist_value,
-    sum(user_count) AS user_count,
-    sdk_key
-  FROM klicklab.daily_user_distribution
-  WHERE segment_type = '${type}'
-    AND date >= toDate('${start}')
-    AND date < toDate('${end}')
-  GROUP BY segment_value, dist_type, dist_value, sdk_key
+    INSERT INTO klicklab.weekly_user_distribution
+    SELECT
+      toDate('${start}') AS date,
+      '${type}' AS segment_type,
+      segment_value,
+      dist_type,
+      dist_value,
+      sum(user_count) AS user_count,
+      sdk_key
+    FROM klicklab.daily_user_distribution
+    WHERE segment_type = '${type}'
+      AND date >= toDate('${start}')
+      AND date < toDate('${end}')
+    GROUP BY segment_value, dist_type, dist_value, sdk_key
   `;
   await clickhouse.command({ query: q });
 }
 
-// 실행
 run().catch((err) => {
   console.error("❌ 집계 실패:", err.message);
   process.exit(1);

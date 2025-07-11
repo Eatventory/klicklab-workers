@@ -39,20 +39,28 @@ async function run() {
 // 1. 클릭 요약 통계
 async function insertClickSummary(type, start, end) {
   const q = `
-  INSERT INTO klicklab.hourly_click_summary
-  SELECT
-    toStartOfHour(date_time) AS date_time,
-    '${type}' AS segment_type,
-    segment_value,
-    sum(total_clicks) AS total_clicks,
-    sum(total_users) AS total_users,
-    round(sum(total_clicks) / sum(total_users), 1) AS avg_clicks_per_user,
-    sdk_key
-  FROM klicklab.minutes_click_summary
-  WHERE segment_type = '${type}'
-    AND date_time >= toDateTime('${start}')
-    AND date_time < toDateTime('${end}')
-  GROUP BY date_time, segment_value, sdk_key
+    INSERT INTO klicklab.hourly_click_summary
+    SELECT
+      date_time,
+      '${type}' AS segment_type,
+      segment_value,
+      total_clicks,
+      total_users,
+      round(total_clicks / nullIf(total_users, 0), 1) AS avg_clicks_per_user,
+      sdk_key
+    FROM (
+      SELECT
+        toStartOfHour(date_time) AS date_time,
+        segment_value,
+        sum(total_clicks) AS total_clicks,
+        sum(total_users) AS total_users,
+        sdk_key
+      FROM klicklab.minutes_click_summary
+      WHERE segment_type = '${type}'
+        AND date_time >= toDateTime('${start}')
+        AND date_time < toDateTime('${end}')
+      GROUP BY date_time, segment_value, sdk_key
+    )
   `;
   await clickhouse.command({ query: q });
 }
@@ -60,28 +68,39 @@ async function insertClickSummary(type, start, end) {
 // 2. Top 클릭 요소 (Top 3)
 async function insertTopElements(type, start, end) {
   const q = `
-  INSERT INTO klicklab.hourly_top_elements
-  SELECT *
-  FROM (
+    INSERT INTO klicklab.hourly_top_elements
     SELECT
-      toStartOfHour(date_time) AS date_time,
+      date_time,
       '${type}' AS segment_type,
       segment_value,
       element,
-      sum(total_clicks) AS total_clicks,
-      sum(user_count) AS user_count,
-      row_number() OVER (
-        PARTITION BY sdk_key, segment_value, toStartOfHour(date_time)
-        ORDER BY sum(total_clicks) DESC
-      ) AS rank,
+      total_clicks,
+      user_count,
+      rank,
       sdk_key
-    FROM klicklab.minutes_top_elements
-    WHERE segment_type = '${type}'
-      AND date_time >= toDateTime('${start}')
-      AND date_time < toDateTime('${end}')
-    GROUP BY date_time, segment_value, element, sdk_key
-  )
-  WHERE rank <= 3
+    FROM (
+      SELECT
+        *,
+        row_number() OVER (
+          PARTITION BY sdk_key, segment_value, date_time
+          ORDER BY total_clicks DESC
+        ) AS rank
+      FROM (
+        SELECT
+          toStartOfHour(date_time) AS date_time,
+          segment_value,
+          element,
+          sum(total_clicks) AS total_clicks,
+          sum(user_count) AS user_count,
+          sdk_key
+        FROM klicklab.minutes_top_elements
+        WHERE segment_type = '${type}'
+          AND date_time >= toDateTime('${start}')
+          AND date_time < toDateTime('${end}')
+        GROUP BY date_time, segment_value, element, sdk_key
+      )
+    ) AS ranked
+    WHERE rank <= 3
   `;
   await clickhouse.command({ query: q });
 }
@@ -89,20 +108,29 @@ async function insertTopElements(type, start, end) {
 // 3. 사용자 분포
 async function insertUserDistribution(type, start, end) {
   const q = `
-  INSERT INTO klicklab.hourly_user_distribution
-  SELECT
-    toStartOfHour(date_time) AS date_time,
-    '${type}' AS segment_type,
-    segment_value,
-    dist_type,
-    dist_value,
-    sum(user_count) AS user_count,
-    sdk_key
-  FROM klicklab.minutes_user_distribution
-  WHERE segment_type = '${type}'
-    AND date_time >= toDateTime('${start}')
-    AND date_time < toDateTime('${end}')
-  GROUP BY date_time, segment_value, dist_type, dist_value, sdk_key
+    INSERT INTO klicklab.hourly_user_distribution
+    SELECT
+      hour_time AS date_time,
+      '${type}' AS segment_type,
+      segment_value,
+      dist_type,
+      dist_value,
+      sum(user_count) AS user_count,
+      sdk_key
+    FROM (
+      SELECT
+        toStartOfHour(date_time) AS hour_time,
+        segment_value,
+        dist_type,
+        dist_value,
+        user_count,
+        sdk_key
+      FROM klicklab.minutes_user_distribution
+      WHERE segment_type = '${type}'
+        AND date_time >= toDateTime('${start}')
+        AND date_time < toDateTime('${end}')
+    )
+    GROUP BY hour_time, segment_value, dist_type, dist_value, sdk_key
   `;
   await clickhouse.command({ query: q });
 }
