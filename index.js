@@ -8,7 +8,7 @@ const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 function runScript(name) {
   const filePath = path.resolve(__dirname, name);
   log(`▶ ${name} 실행 시작`);
-  exec(`node ${filePath}`, (err, stdout, stderr) => {
+  exec(`node "${filePath}"`, (err, stdout, stderr) => {
     if (err) {
       log(`❌ ${name} 실패: ${err.message}`);
       return;
