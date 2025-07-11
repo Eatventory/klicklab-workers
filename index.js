@@ -15,34 +15,32 @@ function runScriptSequentially(scripts) {
       if (stderr) console.error(stderr);
       if (stdout) console.log(stdout);
       log(`✅ ${first} 완료`);
-      runScriptSequentially(rest);
+      runScriptSequentially(rest); // 다음 스크립트 실행
     }
   });
 }
 
-// ⏱️ 매 분마다 검사
+// [00:00, 00:10, 00:30 등 매 분마다 체크]
 cron.schedule("* * * * *", () => {
   const now = new Date();
   const min = now.getMinutes();
   const hour = now.getHours();
-  const day = now.getDay(); // 0 = Sunday, 1 = Monday, ...
+  const day = now.getDay(); // 0: 일, 1: 월 ...
 
-  // MM, MU: 매 10분마다
+  // [00,10,20,...] → MM + MU
   if (min % 10 === 0) {
-    runScriptSequentially(["insertMM.js", "insertMU.js"]);
+    const scripts = ["insertMM.js", "insertMU.js"];
+    // 정각이면 H_도 같이
+    if (min === 0) scripts.push("insertHM.js", "insertHU.js");
+    runScriptSequentially(scripts);
   }
 
-  // HM, HU: 매시 정각
-  if (min === 0) {
-    runScriptSequentially(["insertHM.js", "insertHU.js"]);
-  }
-
-  // DM, DU: 매일 00:10
+  // D_: 매일 00:10
   if (hour === 0 && min === 10) {
     runScriptSequentially(["insertDM.js", "insertDU.js"]);
   }
 
-  // WM, WU: 매주 월요일 00:30
+  // W_: 매주 월요일 00:30
   if (day === 1 && hour === 0 && min === 30) {
     runScriptSequentially(["insertWM.js", "insertWU.js"]);
   }
