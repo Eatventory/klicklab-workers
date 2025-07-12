@@ -5,19 +5,38 @@ const clickhouse = require("./config/clickhouse");
 const isSameOrBefore = require("dayjs/plugin/isSameOrBefore");
 dayjs.extend(isSameOrBefore);
 
-const START_DATE = process.argv[2];
+const args = process.argv.slice(2);
+let start, end;
 
-if (!START_DATE || !/^\d{4}-\d{2}-\d{2}$/.test(START_DATE)) {
-  console.error("❌ 날짜 형식 오류. 형식: YYYY-MM-DD");
+if (args.length === 0) {
+  // 인자 없으면 어제 하루
+  start = end = dayjs().subtract(1, "day").startOf("day");
+} else if (args.length === 1) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args[0])) {
+    console.error("❌ 날짜 형식 오류. 형식: YYYY-MM-DD");
+    process.exit(1);
+  }
+  start = end = dayjs(args[0]);
+} else if (args.length === 2) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args[0]) || !/^\d{4}-\d{2}-\d{2}$/.test(args[1])) {
+    console.error("❌ 날짜 형식 오류. 형식: YYYY-MM-DD YYYY-MM-DD");
+    process.exit(1);
+  }
+  start = dayjs(args[0]);
+  end = dayjs(args[1]);
+} else {
+  console.error("❌ 사용법: node test.js [시작일] [종료일]");
   process.exit(1);
 }
 
-const start = dayjs(START_DATE);
-const yesterday = dayjs().subtract(1, "day").startOf("day");
-
-if (start.isAfter(yesterday.endOf("day"))) {
+const today = dayjs().startOf("day");
+if (start.isAfter(today)) {
   console.error("❌ 시작 날짜는 오늘 이후일 수 없습니다.");
   process.exit(1);
+}
+if (end.isAfter(today)) {
+  console.warn("⚠ 종료 날짜가 오늘 이후입니다. 오늘로 조정됩니다.");
+  end = today;
 }
 
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -47,73 +66,36 @@ async function deleteForDate(table, condition) {
 }
 
 (async () => {
-  log(`📦 집계 시작: ${START_DATE} ~ ${yesterday.format("YYYY-MM-DD")}`);
+  log(`📦 집계 시작: ${start.format("YYYY-MM-DD")} ~ ${end.format("YYYY-MM-DD")}`);
+  console.time('Runtime');
 
   for (
     let d = start.clone();
-    d.isSameOrBefore(yesterday, "day");
+    d.isSameOrBefore(end, "day");
     d = d.add(1, "day")
   ) {
     const dayStr = d.format("YYYY-MM-DD");
     const hourStart = d.startOf("day");
 
-    // ✅ 삭제 (날짜 단위)
+    // ✅ 삭제
     await Promise.all([
-      deleteForDate(
-        "klicklab.minutes_metrics",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.minutes_click_summary",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.minutes_top_elements",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.minutes_user_distribution",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.hourly_metrics",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.hourly_click_summary",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.hourly_top_elements",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.hourly_user_distribution",
-        `toDate(date_time) = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.daily_metrics",
-        `date = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.daily_click_summary",
-        `date = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.daily_top_elements",
-        `date = toDate('${dayStr}')`
-      ),
-      deleteForDate(
-        "klicklab.daily_user_distribution",
-        `date = toDate('${dayStr}')`
-      ),
+      deleteForDate("klicklab.minutes_metrics", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.minutes_click_summary", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.minutes_top_elements", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.minutes_user_distribution", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.hourly_metrics", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.hourly_click_summary", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.hourly_top_elements", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.hourly_user_distribution", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.daily_metrics", `date = toDate('${dayStr}')`),
+      deleteForDate("klicklab.daily_click_summary", `date = toDate('${dayStr}')`),
+      deleteForDate("klicklab.daily_top_elements", `date = toDate('${dayStr}')`),
+      deleteForDate("klicklab.daily_user_distribution", `date = toDate('${dayStr}')`),
     ]);
 
     // ✅ 집계 실행
     for (let i = 0; i < 24 * 6; i++) {
-      const timeStr = hourStart
-        .add(i * 10, "minute")
-        .format("YYYY-MM-DDTHH:mm");
+      const timeStr = hourStart.add(i * 10, "minute").format("YYYY-MM-DDTHH:mm");
       await runScript("insertMM.js", timeStr);
       await runScript("insertMU.js", timeStr);
     }
@@ -128,35 +110,23 @@ async function deleteForDate(table, condition) {
     await runScript("insertDU.js", dayStr);
   }
 
-  // ✅ 주간 삭제 및 집계 (7일 단위)
+  // ✅ 주간 집계
   for (
     let w = start.clone();
-    w.add(6, "day").isSameOrBefore(yesterday, "day");
+    w.add(6, "day").isSameOrBefore(end, "day");
     w = w.add(7, "day")
   ) {
     const weekStart = w.format("YYYY-MM-DD");
     await Promise.all([
-      deleteForDate(
-        "klicklab.weekly_metrics",
-        `date = toDate('${weekStart}')`
-      ),
-      deleteForDate(
-        "klicklab.weekly_click_summary",
-        `date = toDate('${weekStart}')`
-      ),
-      deleteForDate(
-        "klicklab.weekly_top_elements",
-        `date = toDate('${weekStart}')`
-      ),
-      deleteForDate(
-        "klicklab.weekly_user_distribution",
-        `date = toDate('${weekStart}')`
-      ),
+      deleteForDate("klicklab.weekly_metrics", `date = toDate('${weekStart}')`),
+      deleteForDate("klicklab.weekly_click_summary", `date = toDate('${weekStart}')`),
+      deleteForDate("klicklab.weekly_top_elements", `date = toDate('${weekStart}')`),
+      deleteForDate("klicklab.weekly_user_distribution", `date = toDate('${weekStart}')`),
     ]);
-
     await runScript("insertWM.js", weekStart);
     await runScript("insertWU.js", weekStart);
   }
 
   log("🎉 전체 집계 완료");
+  console.timeEnd('Runtime');
 })();
