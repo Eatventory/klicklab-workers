@@ -96,21 +96,27 @@ async function deleteForDate(table, condition) {
 
     for (let i = 0; i < 24 * 6; i++) {
       const timeStr = hourStart.add(i * 10, "minute").format("YYYY-MM-DDTHH:mm");
-      await runScript("insertMM.js", timeStr);
-      await runScript("insertMU.js", timeStr);
-      await runScript("insertMP.js", timeStr);
+      await Promise.all([
+        runScript("insertMM.js", timeStr),
+        runScript("insertMU.js", timeStr),
+        runScript("insertMP.js", timeStr),
+      ]);
     }
 
     for (let h = 0; h < 24; h++) {
       const hourStr = hourStart.add(h, "hour").format("YYYY-MM-DDTHH");
-      await runScript("insertHM.js", hourStr);
-      await runScript("insertHU.js", hourStr);
-      await runScript("insertHP.js", hourStr);
+      await Promise.all([
+        runScript("insertHM.js", hourStr),
+        runScript("insertHU.js", hourStr),
+        runScript("insertHP.js", hourStr),
+      ]);
     }
 
-    await runScript("insertDM.js", dayStr);
-    await runScript("insertDU.js", dayStr);
-    await runScript("insertDP.js", dayStr);
+    await Promise.all([
+      runScript("insertDM.js", dayStr),
+      runScript("insertDU.js", dayStr),
+      runScript("insertDP.js", dayStr),
+    ]);
   }
 
   for (
@@ -126,9 +132,11 @@ async function deleteForDate(table, condition) {
       deleteForDate("klicklab.weekly_user_distribution", `date = toDate('${weekStart}')`),
       deleteForDate("klicklab.weekly_page_stats", `date = toDate('${weekStart}')`),
     ]);
-    await runScript("insertWM.js", weekStart);
-    await runScript("insertWU.js", weekStart);
-    await runScript("insertWP.js", weekStart);
+    await Promise.all([
+      runScript("insertWM.js", weekStart),
+      runScript("insertWU.js", weekStart),
+      runScript("insertWP.js", weekStart),
+    ]);
   }
 
   log("🎉 전체 집계 완료");

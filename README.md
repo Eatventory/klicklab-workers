@@ -1,5 +1,5 @@
 * index.js : `node index.js` 통합 스케줄러 프로그램
-* test.js : `node test.js 2025-07-01` 통합 테스트 프로그램 (예: 7월 1일 ~ 어제 날짜)
+* test.js : `node test.js 2025-07-11 2025-07-12` 통합 테스트 프로그램
 ---
 * insertM_.js : `minutes_*` 테이블에 지난 10분 동안의 집계 데이터를 INSERT하는 프로그램입니다.
     * `node insertM_.js` : 지난 10분 데이터 집계
