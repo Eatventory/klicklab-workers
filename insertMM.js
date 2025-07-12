@@ -35,24 +35,23 @@ if (input) {
 const query = `
   INSERT INTO klicklab.minutes_metrics
   SELECT
-    toStartOfTenMinutes(timestamp) AS date_time,
-    countIf(event_name = 'auto_click') AS clicks,
-    count(DISTINCT client_id) AS visitors,
-    count(DISTINCT if(toDate(timestamp) = first_seen, client_id, NULL)) AS new_visitors,
-    count(DISTINCT if(toDate(timestamp) != first_seen, client_id, NULL)) AS existing_visitors,
+    toStartOfTenMinutes(e.timestamp) AS date_time,
+    countIf(e.event_name = 'auto_click') AS clicks,
+    count(DISTINCT e.client_id) AS visitors,
+    count(DISTINCT if(past.client_id IS NULL, e.client_id, NULL)) AS new_visitors,
+    count(DISTINCT if(past.client_id IS NOT NULL, e.client_id, NULL)) AS existing_visitors,
     if(
-      isFinite(avgIf(session_duration, session_duration > 0)),
-      toUInt32(avgIf(session_duration, session_duration > 0)),
+      isFinite(avgIf(e.session_duration, e.session_duration > 0)),
+      toUInt32(avgIf(e.session_duration, e.session_duration > 0)),
       0
     ) AS avg_session_seconds,
-    sdk_key
+    e.sdk_key
   FROM (
     SELECT
       client_id,
       timestamp,
       sdk_key,
       event_name,
-      min(toDate(timestamp)) OVER (PARTITION BY client_id, sdk_key) AS first_seen,
       dateDiff(
         'second',
         min(timestamp) OVER (PARTITION BY client_id, sdk_key),
@@ -60,12 +59,20 @@ const query = `
       ) AS session_duration
     FROM klicklab.events
     WHERE timestamp >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
-      AND timestamp < toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
-  )
+      AND timestamp <  toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
+  ) AS e
+  LEFT JOIN (
+    SELECT
+      DISTINCT client_id,
+      sdk_key
+    FROM klicklab.events
+    WHERE timestamp < toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
+  ) AS past
+  ON e.client_id = past.client_id AND e.sdk_key = past.sdk_key
   GROUP BY
-    date_time, sdk_key
+    date_time, e.sdk_key
   ORDER BY
-    date_time, sdk_key;
+    date_time, e.sdk_key;
 `;
 
 async function run() {
