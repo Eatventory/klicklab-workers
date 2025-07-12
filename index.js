@@ -29,20 +29,20 @@ cron.schedule("* * * * *", () => {
 
   // [00,10,20,...] → MM + MU
   if (min % 10 === 0) {
-    const scripts = ["insertMM.js", "insertMU.js"];
+    const scripts = ["insertMM.js", "insertMU.js", "insertMP.js"];
     // 정각이면 H_도 같이
-    if (min === 0) scripts.push("insertHM.js", "insertHU.js");
+    if (min === 0) scripts.push("insertHM.js", "insertHU.js", "insertHP.js");
     runScriptSequentially(scripts);
   }
 
   // D_: 매일 00:10
   if (hour === 0 && min === 10) {
-    runScriptSequentially(["insertDM.js", "insertDU.js"]);
+    runScriptSequentially(["insertDM.js", "insertDU.js", "insertDP.js"]);
   }
 
   // W_: 매주 월요일 00:30
   if (day === 1 && hour === 0 && min === 30) {
-    runScriptSequentially(["insertWM.js", "insertWU.js"]);
+    runScriptSequentially(["insertWM.js", "insertWU.js", "insertWP.js"]);
   }
 });
 

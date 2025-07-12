@@ -9,8 +9,7 @@ const args = process.argv.slice(2);
 let start, end;
 
 if (args.length === 0) {
-  // 인자 없으면 어제 하루
-  start = end = dayjs().subtract(1, "day").startOf("day");
+  start = end = dayjs().subtract(1, "day").startOf("day"); // 인자 없으면 어제 하루
 } else if (args.length === 1) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(args[0])) {
     console.error("❌ 날짜 형식 오류. 형식: YYYY-MM-DD");
@@ -77,40 +76,43 @@ async function deleteForDate(table, condition) {
     const dayStr = d.format("YYYY-MM-DD");
     const hourStart = d.startOf("day");
 
-    // ✅ 삭제
     await Promise.all([
       deleteForDate("klicklab.minutes_metrics", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.minutes_click_summary", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.minutes_top_elements", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.minutes_user_distribution", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.minutes_page_stats", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.hourly_metrics", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.hourly_click_summary", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.hourly_top_elements", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.hourly_user_distribution", `toDate(date_time) = toDate('${dayStr}')`),
+      deleteForDate("klicklab.hourly_page_stats", `toDate(date_time) = toDate('${dayStr}')`),
       deleteForDate("klicklab.daily_metrics", `date = toDate('${dayStr}')`),
       deleteForDate("klicklab.daily_click_summary", `date = toDate('${dayStr}')`),
       deleteForDate("klicklab.daily_top_elements", `date = toDate('${dayStr}')`),
       deleteForDate("klicklab.daily_user_distribution", `date = toDate('${dayStr}')`),
+      deleteForDate("klicklab.daily_page_stats", `date = toDate('${dayStr}')`),
     ]);
 
-    // ✅ 집계 실행
     for (let i = 0; i < 24 * 6; i++) {
       const timeStr = hourStart.add(i * 10, "minute").format("YYYY-MM-DDTHH:mm");
       await runScript("insertMM.js", timeStr);
       await runScript("insertMU.js", timeStr);
+      await runScript("insertMP.js", timeStr);
     }
 
     for (let h = 0; h < 24; h++) {
       const hourStr = hourStart.add(h, "hour").format("YYYY-MM-DDTHH");
       await runScript("insertHM.js", hourStr);
       await runScript("insertHU.js", hourStr);
+      await runScript("insertHP.js", hourStr);
     }
 
     await runScript("insertDM.js", dayStr);
     await runScript("insertDU.js", dayStr);
+    await runScript("insertDP.js", dayStr);
   }
 
-  // ✅ 주간 집계
   for (
     let w = start.clone();
     w.add(6, "day").isSameOrBefore(end, "day");
@@ -122,9 +124,11 @@ async function deleteForDate(table, condition) {
       deleteForDate("klicklab.weekly_click_summary", `date = toDate('${weekStart}')`),
       deleteForDate("klicklab.weekly_top_elements", `date = toDate('${weekStart}')`),
       deleteForDate("klicklab.weekly_user_distribution", `date = toDate('${weekStart}')`),
+      deleteForDate("klicklab.weekly_page_stats", `date = toDate('${weekStart}')`),
     ]);
     await runScript("insertWM.js", weekStart);
     await runScript("insertWU.js", weekStart);
+    await runScript("insertWP.js", weekStart);
   }
 
   log("🎉 전체 집계 완료");
