@@ -40,17 +40,27 @@ const query = `
     count(DISTINCT client_id) AS visitors,
     count(DISTINCT if(toDate(timestamp) = first_seen, client_id, NULL)) AS new_visitors,
     count(DISTINCT if(toDate(timestamp) != first_seen, client_id, NULL)) AS existing_visitors,
+    if(
+      isFinite(avgIf(session_duration, session_duration > 0)),
+      toUInt32(avgIf(session_duration, session_duration > 0)),
+      0
+    ) AS avg_session_seconds,
     sdk_key
   FROM (
-  SELECT
-    client_id,
-    timestamp,
-    sdk_key,
-    event_name,
-    min(toDate(timestamp)) OVER (PARTITION BY client_id, sdk_key) AS first_seen
-  FROM klicklab.events
-  WHERE timestamp >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
-    AND timestamp < toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
+    SELECT
+      client_id,
+      timestamp,
+      sdk_key,
+      event_name,
+      min(toDate(timestamp)) OVER (PARTITION BY client_id, sdk_key) AS first_seen,
+      dateDiff(
+        'second',
+        min(timestamp) OVER (PARTITION BY client_id, sdk_key),
+        max(timestamp) OVER (PARTITION BY client_id, sdk_key)
+      ) AS session_duration
+    FROM klicklab.events
+    WHERE timestamp >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
+      AND timestamp < toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
   )
   GROUP BY
     date_time, sdk_key

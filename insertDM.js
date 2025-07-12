@@ -26,6 +26,7 @@ const query = `
     sum(visitors) AS visitors,
     sum(existing_visitors) AS existing_visitors,
     sum(new_visitors) AS new_visitors,
+    toUInt32(avg(avg_session_seconds)) AS avg_session_seconds,
     sdk_key
   FROM klicklab.hourly_metrics
   WHERE date_time >= toDateTime('${start.format('YYYY-MM-DD')} 00:00:00')
