@@ -22,7 +22,8 @@ const query = `
   INSERT INTO klicklab.weekly_page_stats
   WITH
     sum(page_views) AS total_views,
-    sum(page_exits) AS total_exits
+    sum(page_exits) AS total_exits,
+    avg(avg_time_on_page_seconds) AS avg_time
   SELECT
     toDate('${start.format("YYYY-MM-DD")}') AS date,
     page_path,
@@ -31,7 +32,8 @@ const query = `
     if(total_views = 0, 0, round(total_exits / total_views, 3)) AS drop_rate,
     any(next_pages.to) AS "next_pages.to",
     any(next_pages.count) AS "next_pages.count",
-    sdk_key
+    sdk_key,
+    round(avg_time, 2) AS avg_time_on_page_seconds
   FROM (
     SELECT
       page_path,
@@ -39,7 +41,8 @@ const query = `
       page_exits,
       next_pages.to,
       next_pages.count,
-      sdk_key
+      sdk_key,
+      avg_time_on_page_seconds
     FROM klicklab.daily_page_stats
     WHERE date >= toDate('${start.format("YYYY-MM-DD")}')
       AND date < toDate('${end.format("YYYY-MM-DD")}')

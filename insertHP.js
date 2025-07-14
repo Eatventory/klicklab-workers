@@ -29,7 +29,8 @@ async function runHourlyPageAggregation() {
     INSERT INTO klicklab.hourly_page_stats
     WITH
       sum(page_views) AS total_views,
-      sum(page_exits) AS total_exits
+      sum(page_exits) AS total_exits,
+      avg(avg_time_on_page_seconds) AS avg_time
     SELECT
       date_time,
       page_path,
@@ -38,7 +39,8 @@ async function runHourlyPageAggregation() {
       if(total_views = 0, 0, round(total_exits / total_views, 3)) AS drop_rate,
       any(next_pages.to) AS "next_pages.to",
       any(next_pages.count) AS "next_pages.count",
-      sdk_key
+      sdk_key,
+      round(avg_time, 2) AS avg_time_on_page_seconds
     FROM (
       SELECT
         toStartOfHour(date_time) AS date_time,
@@ -47,7 +49,8 @@ async function runHourlyPageAggregation() {
         page_exits,
         next_pages.to,
         next_pages.count,
-        sdk_key
+        sdk_key,
+        avg_time_on_page_seconds
       FROM klicklab.minutes_page_stats
       WHERE date_time >= toDateTime('${start.format('YYYY-MM-DD HH:mm:ss')}')
         AND date_time < toDateTime('${end.format('YYYY-MM-DD HH:mm:ss')}')

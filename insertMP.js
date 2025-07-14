@@ -28,7 +28,8 @@ const query = `
       page_path,
       sdk_key,
       lead(page_path, 1) OVER (PARTITION BY session_id ORDER BY timestamp) AS next_page,
-      if(lead(page_path, 1) OVER (PARTITION BY session_id ORDER BY timestamp) IS NULL, 1, 0) AS is_exit
+      if(lead(page_path, 1) OVER (PARTITION BY session_id ORDER BY timestamp) IS NULL, 1, 0) AS is_exit,
+      time_on_page_seconds
     FROM klicklab.events
     WHERE timestamp >= toDateTime('${start.format('YYYY-MM-DD HH:mm:ss')}')
       AND timestamp < toDateTime('${end.format('YYYY-MM-DD HH:mm:ss')}')
@@ -43,7 +44,8 @@ const query = `
     if(count() = 0, 0, round(sum(is_exit) / count(), 3)) AS drop_rate,
     groupArray(next_page) AS "next_pages.to",
     groupArray(to_count) AS "next_pages.count",
-    sdk_key
+    sdk_key,
+    round(avg(time_on_page_seconds), 2) AS avg_time_on_page_seconds
   FROM (
     SELECT
       *,
