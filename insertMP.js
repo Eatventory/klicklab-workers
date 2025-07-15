@@ -45,7 +45,10 @@ const query = `
       toUInt32(avgIf(e.session_duration, e.session_duration > 0)),
       0
     ) AS avg_session_seconds,
-    e.sdk_key
+    e.sdk_key,
+    'page_stats' AS stat_type,
+    '10min' AS time_unit,
+    toDate(e.timestamp) AS date
   FROM (
     SELECT
       client_id,
@@ -69,7 +72,7 @@ const query = `
   ) AS past
   ON e.client_id = past.client_id AND e.sdk_key = past.sdk_key
   GROUP BY
-    date_time, e.sdk_key
+    date_time, e.sdk_key, stat_type, time_unit, date
   ORDER BY
     date_time, e.sdk_key;
 `;
