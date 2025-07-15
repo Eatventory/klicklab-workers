@@ -51,8 +51,8 @@ const query = `
       sum(page_views) AS page_views,
       sum(page_exits) AS page_exits,
       avg(drop_rate) AS drop_rate,
-      arrayConcat(groupArray(\`next_pages.to\`)) AS next_pages_to,
-      arrayConcat(groupArray(\`next_pages.count\`)) AS next_pages_count,
+      any(\`next_pages.to\`) AS next_pages_to,
+      any(\`next_pages.count\`) AS next_pages_count,
       avg(avg_time_on_page_seconds) AS avg_time_on_page_seconds
     FROM klicklab.minutes_page_stats
     WHERE date_time >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
