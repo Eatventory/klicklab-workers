@@ -22,7 +22,8 @@ function run() {
     end = start.add(1, "hour");
   } else {
     const now = dayjs();
-    end = now.startOf("hour");
+    // 1시간 지연: 현재 01:00라면 23:00~00:00 구간을 집계
+    end = now.startOf("hour").subtract(1, "hour");
     start = end.subtract(1, "hour");
   }
 

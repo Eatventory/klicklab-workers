@@ -31,7 +31,8 @@ if (input) {
     process.exit(1);
   }
 } else {
-  end = dayjs().startOf("hour");
+  // 1시간 지연: 현재 01:00라면 23:00~00:00 구간을 집계  
+  end = dayjs().startOf("hour").subtract(1, "hour");
   start = end.subtract(1, "hour");
 }
 
