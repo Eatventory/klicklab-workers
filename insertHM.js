@@ -1,4 +1,8 @@
 require('dotenv').config();
+
+// 한국 시간대 설정
+process.env.TZ = 'Asia/Seoul';
+
 /* minutes_metrics → hourly_metrics */
 const clickhouse = require('./config/clickhouse');
 const dayjs = require("dayjs");

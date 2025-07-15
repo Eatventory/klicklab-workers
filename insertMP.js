@@ -1,4 +1,8 @@
 require('dotenv').config();
+
+// 한국 시간대 설정
+process.env.TZ = 'Asia/Seoul';
+
 /* events → minutes_page_stats */
 const clickhouse = require('./config/clickhouse');
 const dayjs = require("dayjs");
@@ -27,9 +31,11 @@ if (input) {
     process.exit(1);
   }
 } else {
-  end = dayjs()
+  // 한국 시간 기준으로 계산
+  const now = new Date();
+  end = dayjs(now)
     .startOf("minute")
-    .subtract(dayjs().minute() % 10, "minute");
+    .subtract(dayjs(now).minute() % 10, "minute");
   start = end.subtract(10, "minute");
 }
 

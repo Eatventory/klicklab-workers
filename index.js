@@ -1,8 +1,18 @@
 require('dotenv').config();
+
+// 한국 시간대 설정
+process.env.TZ = 'Asia/Seoul';
+
 const path = require("path");
 const { exec } = require("child_process");
 const cron = require("node-cron");
-const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+
+// 한국 시간 로그 함수
+const log = (msg) => {
+  const now = new Date();
+  const kstTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC + 9시간
+  console.log(`[${kstTime.toISOString().replace('Z', '+09:00')}] ${msg}`);
+};
 
 function runScriptSequentially(scripts) {
   const [first, ...rest] = scripts;
