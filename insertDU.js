@@ -69,14 +69,22 @@ function insertClickSummary(type, expr, start, end, callback) {
       toDate(date_time) AS date,
       '${type}' AS segment_type,
       segment_value,
-      sum(total_clicks) AS total_clicks,
-      sum(total_users) AS total_users,
-      round(sum(total_clicks) / nullIf(sum(total_users), 0), 1) AS avg_clicks_per_user,
+      total_clicks,
+      total_users,
+      round(total_clicks / nullIf(total_users, 0), 1) AS avg_clicks_per_user,
       sdk_key
-    FROM klicklab.hourly_click_summary
-    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND segment_type = '${type}'
-    GROUP BY date, segment_value, sdk_key
+    FROM (
+      SELECT
+        toDate(date_time) AS date,
+        segment_value,
+        sdk_key,
+        sum(total_clicks) AS total_clicks,
+        sum(total_users) AS total_users
+      FROM klicklab.hourly_click_summary
+      WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+        AND segment_type = '${type}'
+      GROUP BY toDate(date_time), segment_value, sdk_key
+    )
   `;
   clickhouse.query(q, (err, result) => {
     if (err) {
@@ -92,21 +100,30 @@ function insertTopElements(type, expr, start, end, callback) {
     SELECT *
     FROM (
       SELECT
-        toDate(date_time) AS date,
+        date,
         '${type}' AS segment_type,
         segment_value,
         element,
-        sum(total_clicks) AS total_clicks,
-        sum(user_count) AS user_count,
+        total_clicks,
+        user_count,
         row_number() OVER (
-          PARTITION BY sdk_key, segment_value, toDate(date_time)
-          ORDER BY sum(total_clicks) DESC
+          PARTITION BY sdk_key, segment_value, date
+          ORDER BY total_clicks DESC
         ) AS rank,
         sdk_key
-      FROM klicklab.hourly_top_elements
-      WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-        AND segment_type = '${type}'
-      GROUP BY toDate(date_time), segment_value, element, sdk_key
+      FROM (
+        SELECT
+          toDate(date_time) AS date,
+          segment_value,
+          element,
+          sdk_key,
+          sum(total_clicks) AS total_clicks,
+          sum(user_count) AS user_count
+        FROM klicklab.hourly_top_elements
+        WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+          AND segment_type = '${type}'
+        GROUP BY toDate(date_time), segment_value, element, sdk_key
+      )
     )
     WHERE rank <= 3
   `;
@@ -125,33 +142,51 @@ function insertUserDistribution(type, expr, start, end, callback) {
   const ageDistQuery = `
     INSERT INTO klicklab.daily_user_distribution
     SELECT
-      toDate(date_time) AS date,
+      date,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
-      sum(user_count) AS user_count,
+      user_count,
       sdk_key
-    FROM klicklab.hourly_user_distribution
-    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND segment_type = '${type}' AND dist_type = 'ageGroup'
-    GROUP BY date, segment_value, dist_type, dist_value, sdk_key
+    FROM (
+      SELECT
+        toDate(date_time) AS date,
+        segment_value,
+        dist_type,
+        dist_value,
+        sdk_key,
+        sum(user_count) AS user_count
+      FROM klicklab.hourly_user_distribution
+      WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+        AND segment_type = '${type}' AND dist_type = 'ageGroup'
+      GROUP BY toDate(date_time), segment_value, dist_type, dist_value, sdk_key
+    )
   `;
 
   const deviceDistQuery = `
     INSERT INTO klicklab.daily_user_distribution
     SELECT
-      toDate(date_time) AS date,
+      date,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
-      sum(user_count) AS user_count,
+      user_count,
       sdk_key
-    FROM klicklab.hourly_user_distribution
-    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND segment_type = '${type}' AND dist_type = 'device'
-    GROUP BY date, segment_value, dist_type, dist_value, sdk_key
+    FROM (
+      SELECT
+        toDate(date_time) AS date,
+        segment_value,
+        dist_type,
+        dist_value,
+        sdk_key,
+        sum(user_count) AS user_count
+      FROM klicklab.hourly_user_distribution
+      WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+        AND segment_type = '${type}' AND dist_type = 'device'
+      GROUP BY toDate(date_time), segment_value, dist_type, dist_value, sdk_key
+    )
   `;
 
   clickhouse.query(ageDistQuery, (err, result) => {
