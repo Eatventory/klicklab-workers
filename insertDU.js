@@ -36,7 +36,7 @@ function run() {
       console.log(`[일간 집계 완료] ${type}`);
       
       if (completedSegments === totalSegments) {
-        clickhouse.close();
+        console.log("✅ 모든 세그먼트 집계 완료");
       }
     });
   }
