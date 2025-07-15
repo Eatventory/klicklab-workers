@@ -76,13 +76,14 @@ const query = `
     date_time, e.sdk_key;
 `;
 
-async function run() {
-  try {
-    await clickhouse.command({ query });
-    console.log(`✅ 집계 완료: ${start.format()} ~ ${end.format()}`);
-  } catch (err) {
-    console.error("❌ 집계 실패:", err.message);
-  }
+function run() {
+  clickhouse.query(query, (err, result) => {
+    if (err) {
+      console.error("❌ 집계 실패:", err.message);
+    } else {
+      console.log(`✅ 집계 완료: ${start.format()} ~ ${end.format()}`);
+    }
+  });
 }
 
 run();
