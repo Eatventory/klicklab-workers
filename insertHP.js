@@ -34,20 +34,30 @@ if (input) {
 const query = `
   INSERT INTO klicklab.hourly_page_stats
   SELECT
-    toStartOfHour(date_time) AS date_time,
+    grouped_time AS date_time,
     page_path,
-    sum(page_views) AS page_views,
-    sum(page_exits) AS page_exits,
-    avg(drop_rate) AS drop_rate,
-    avg(avg_time_on_page_seconds) AS avg_time_on_page_seconds,
+    page_views,
+    page_exits,
+    drop_rate,
+    avg_time_on_page_seconds,
     sdk_key
-  FROM klicklab.minutes_page_stats
-  WHERE date_time >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
-    AND date_time < toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
-  GROUP BY
-    toStartOfHour(date_time), page_path, sdk_key
+  FROM (
+    SELECT
+      toStartOfHour(date_time) AS grouped_time,
+      page_path,
+      sdk_key,
+      sum(page_views) AS page_views,
+      sum(page_exits) AS page_exits,
+      avg(drop_rate) AS drop_rate,
+      avg(avg_time_on_page_seconds) AS avg_time_on_page_seconds
+    FROM klicklab.minutes_page_stats
+    WHERE date_time >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
+      AND date_time < toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
+    GROUP BY
+      toStartOfHour(date_time), page_path, sdk_key
+  ) AS aggregated
   ORDER BY
-    date_time, page_path, sdk_key;
+    grouped_time, page_path, sdk_key;
 `;
 
 function run() {
