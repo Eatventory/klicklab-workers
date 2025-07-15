@@ -68,17 +68,25 @@ function insertClickSummary(type, expr, start, end, callback) {
   const q = `
     INSERT INTO klicklab.hourly_click_summary
     SELECT
-      toStartOfHour(date_time) AS date_time,
+      grouped_time AS date_time,
       '${type}' AS segment_type,
       segment_value,
-      sum(total_clicks) AS total_clicks,
-      count(DISTINCT total_users) AS total_users,
-      round(sum(total_clicks) / nullIf(countDistinct(total_users), 0), 1) AS avg_clicks_per_user,
+      total_clicks,
+      total_users,
+      round(total_clicks / nullIf(total_users, 0), 1) AS avg_clicks_per_user,
       sdk_key
-    FROM klicklab.minutes_click_summary
-    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND segment_type = '${type}'
-    GROUP BY date_time, segment_value, sdk_key
+    FROM (
+      SELECT
+        toStartOfHour(date_time) AS grouped_time,
+        segment_value,
+        sdk_key,
+        sum(total_clicks) AS total_clicks,
+        sum(total_users) AS total_users
+      FROM klicklab.minutes_click_summary
+      WHERE date_time >= toDateTime('${start}') AND date_time <= toDateTime('${end}')
+        AND segment_type = '${type}'
+      GROUP BY toStartOfHour(date_time), segment_value, sdk_key
+    ) AS aggregated
   `;
   clickhouse.query(q, (err, result) => {
     if (err) {
@@ -95,22 +103,31 @@ function insertTopElements(type, expr, start, end, callback) {
     SELECT *
     FROM (
       SELECT
-        date_time,
+        grouped_time AS date_time,
         '${type}' AS segment_type,
         segment_value,
         element,
-        sum(total_clicks) AS total_clicks,
-        count(DISTINCT user_count) AS user_count,
+        total_clicks,
+        user_count,
         row_number() OVER (
-          PARTITION BY sdk_key, segment_value, date_time
-          ORDER BY sum(total_clicks) DESC
+          PARTITION BY sdk_key, segment_value, grouped_time
+          ORDER BY total_clicks DESC
         ) AS rank,
         sdk_key
-      FROM klicklab.minutes_top_elements
-      WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-        AND segment_type = '${type}'
-      GROUP BY date_time, segment_value, element, sdk_key
-    )
+      FROM (
+        SELECT
+          toStartOfHour(date_time) AS grouped_time,
+          segment_value,
+          element,
+          sdk_key,
+          sum(total_clicks) AS total_clicks,
+          sum(user_count) AS user_count
+        FROM klicklab.minutes_top_elements
+        WHERE date_time >= toDateTime('${start}') AND date_time <= toDateTime('${end}')
+          AND segment_type = '${type}'
+        GROUP BY toStartOfHour(date_time), segment_value, element, sdk_key
+      ) AS aggregated
+    ) AS ranked
     WHERE rank <= 3
   `;
   clickhouse.query(q, (err, result) => {
@@ -129,33 +146,51 @@ function insertUserDistribution(type, expr, start, end, callback) {
   const ageDistQuery = `
     INSERT INTO klicklab.hourly_user_distribution
     SELECT
-      toStartOfHour(date_time) AS date_time,
+      grouped_time AS date_time,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
-      sum(user_count) AS user_count,
+      user_count,
       sdk_key
-    FROM klicklab.minutes_user_distribution
-    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND segment_type = '${type}' AND dist_type = 'ageGroup'
-    GROUP BY date_time, segment_value, dist_type, dist_value, sdk_key
+    FROM (
+      SELECT
+        toStartOfHour(date_time) AS grouped_time,
+        segment_value,
+        dist_type,
+        dist_value,
+        sdk_key,
+        sum(user_count) AS user_count
+      FROM klicklab.minutes_user_distribution
+      WHERE date_time >= toDateTime('${start}') AND date_time <= toDateTime('${end}')
+        AND segment_type = '${type}' AND dist_type = 'ageGroup'
+      GROUP BY toStartOfHour(date_time), segment_value, dist_type, dist_value, sdk_key
+    ) AS aggregated
   `;
 
   const deviceDistQuery = `
     INSERT INTO klicklab.hourly_user_distribution
     SELECT
-      toStartOfHour(date_time) AS date_time,
+      grouped_time AS date_time,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
-      sum(user_count) AS user_count,
+      user_count,
       sdk_key
-    FROM klicklab.minutes_user_distribution
-    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND segment_type = '${type}' AND dist_type = 'device'
-    GROUP BY date_time, segment_value, dist_type, dist_value, sdk_key
+    FROM (
+      SELECT
+        toStartOfHour(date_time) AS grouped_time,
+        segment_value,
+        dist_type,
+        dist_value,
+        sdk_key,
+        sum(user_count) AS user_count
+      FROM klicklab.minutes_user_distribution
+      WHERE date_time >= toDateTime('${start}') AND date_time <= toDateTime('${end}')
+        AND segment_type = '${type}' AND dist_type = 'device'
+      GROUP BY toStartOfHour(date_time), segment_value, dist_type, dist_value, sdk_key
+    ) AS aggregated
   `;
 
   clickhouse.query(ageDistQuery, (err, result) => {
