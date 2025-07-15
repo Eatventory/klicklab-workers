@@ -36,45 +36,37 @@ if (input) {
 const query = `
   INSERT INTO klicklab.minutes_page_stats
   SELECT
-    toStartOfTenMinutes(e.timestamp) AS date_time,
-    count(DISTINCT e.client_id) AS visitors,
-    count(DISTINCT if(past.client_id IS NULL, e.client_id, NULL)) AS new_visitors,
-    count(DISTINCT if(past.client_id IS NOT NULL, e.client_id, NULL)) AS existing_visitors,
-    if(
-      isFinite(avgIf(e.session_duration, e.session_duration > 0)),
-      toUInt32(avgIf(e.session_duration, e.session_duration > 0)),
-      0
-    ) AS avg_session_seconds,
-    e.sdk_key,
-    'page_stats' AS stat_type,
-    '10min' AS time_unit,
-    toDate(e.timestamp) AS date
+    toStartOfTenMinutes(timestamp) AS date_time,
+    page_path,
+    count(*) AS page_views,
+    sum(is_exit) AS page_exits,
+    if(count() = 0, 0, round(sum(is_exit) / count(), 3)) AS drop_rate,
+    [''] AS "next_pages.to",
+    [0] AS "next_pages.count",
+    sdk_key,
+    round(avg(time_on_page_seconds), 2) AS avg_time_on_page_seconds
   FROM (
     SELECT
-      client_id,
       timestamp,
+      page_path,
       sdk_key,
-      dateDiff(
-        'second',
-        min(timestamp) OVER (PARTITION BY client_id, sdk_key),
-        max(timestamp) OVER (PARTITION BY client_id, sdk_key)
-      ) AS session_duration
-    FROM klicklab.events
-    WHERE timestamp >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
-      AND timestamp <  toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
-  ) AS e
-  LEFT JOIN (
-    SELECT
-      DISTINCT client_id,
-      sdk_key
-    FROM klicklab.events
-    WHERE timestamp < toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
-  ) AS past
-  ON e.client_id = past.client_id AND e.sdk_key = past.sdk_key
-  GROUP BY
-    date_time, e.sdk_key, stat_type, time_unit, date
-  ORDER BY
-    date_time, e.sdk_key;
+      if(lead(page_path, 1) OVER (PARTITION BY session_id ORDER BY timestamp) IS NULL, 1, 0) AS is_exit,
+      time_on_page_seconds
+    FROM (
+      SELECT
+        timestamp,
+        page_path,
+        sdk_key,
+        session_id,
+        dateDiff('second', timestamp, lead(timestamp, 1) OVER (PARTITION BY session_id ORDER BY timestamp)) AS time_on_page_seconds
+      FROM klicklab.events
+      WHERE timestamp >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
+        AND timestamp < toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
+        AND page_path != ''
+    )
+  )
+  GROUP BY date_time, page_path, sdk_key
+  ORDER BY date_time, page_path, sdk_key;
 `;
 
 function run() {
