@@ -66,17 +66,25 @@ function insertClickSummary(type, expr, start, end, callback) {
   const q = `
     INSERT INTO klicklab.weekly_click_summary
     SELECT
-      toStartOfWeek(date) AS week,
+      grouped_week AS week,
       '${type}' AS segment_type,
       segment_value,
-      sum(total_clicks) AS total_clicks,
-      count(DISTINCT total_users) AS total_users,
-      round(sum(total_clicks) / nullIf(countDistinct(total_users), 0), 1) AS avg_clicks_per_user,
+      total_clicks,
+      total_users,
+      round(total_clicks / nullIf(total_users, 0), 1) AS avg_clicks_per_user,
       sdk_key
-    FROM klicklab.daily_click_summary
-    WHERE date BETWEEN toDate('${start}') AND toDate('${end}')
-      AND segment_type = '${type}'
-    GROUP BY week, segment_value, sdk_key
+    FROM (
+      SELECT
+        toStartOfWeek(date) AS grouped_week,
+        segment_value,
+        sdk_key,
+        sum(total_clicks) AS total_clicks,
+        sum(total_users) AS total_users
+      FROM klicklab.daily_click_summary
+      WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+        AND segment_type = '${type}'
+      GROUP BY toStartOfWeek(date), segment_value, sdk_key
+    ) AS aggregated
   `;
   clickhouse.query(q, (err, result) => {
     if (err) {
@@ -92,22 +100,31 @@ function insertTopElements(type, expr, start, end, callback) {
     SELECT *
     FROM (
       SELECT
-        week,
+        grouped_week AS week,
         '${type}' AS segment_type,
         segment_value,
         element,
-        sum(total_clicks) AS total_clicks,
-        count(DISTINCT user_count) AS user_count,
+        total_clicks,
+        user_count,
         row_number() OVER (
-          PARTITION BY sdk_key, segment_value, week
-          ORDER BY sum(total_clicks) DESC
+          PARTITION BY sdk_key, segment_value, grouped_week
+          ORDER BY total_clicks DESC
         ) AS rank,
         sdk_key
-      FROM klicklab.daily_top_elements
-      WHERE date BETWEEN toDate('${start}') AND toDate('${end}')
-        AND segment_type = '${type}'
-      GROUP BY week, segment_value, element, sdk_key
-    )
+      FROM (
+        SELECT
+          toStartOfWeek(date) AS grouped_week,
+          segment_value,
+          element,
+          sdk_key,
+          sum(total_clicks) AS total_clicks,
+          sum(user_count) AS user_count
+        FROM klicklab.daily_top_elements
+        WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+          AND segment_type = '${type}'
+        GROUP BY toStartOfWeek(date), segment_value, element, sdk_key
+      ) AS aggregated
+    ) AS ranked
     WHERE rank <= 3
   `;
   clickhouse.query(q, (err, result) => {
@@ -125,33 +142,51 @@ function insertUserDistribution(type, expr, start, end, callback) {
   const ageDistQuery = `
     INSERT INTO klicklab.weekly_user_distribution
     SELECT
-      toStartOfWeek(date) AS week,
+      grouped_week AS week,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
-      sum(user_count) AS user_count,
+      user_count,
       sdk_key
-    FROM klicklab.daily_user_distribution
-    WHERE date BETWEEN toDate('${start}') AND toDate('${end}')
-      AND segment_type = '${type}' AND dist_type = 'ageGroup'
-    GROUP BY week, segment_value, dist_type, dist_value, sdk_key
+    FROM (
+      SELECT
+        toStartOfWeek(date) AS grouped_week,
+        segment_value,
+        dist_type,
+        dist_value,
+        sdk_key,
+        sum(user_count) AS user_count
+      FROM klicklab.daily_user_distribution
+      WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+        AND segment_type = '${type}' AND dist_type = 'ageGroup'
+      GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
+    ) AS aggregated
   `;
 
   const deviceDistQuery = `
     INSERT INTO klicklab.weekly_user_distribution
     SELECT
-      toStartOfWeek(date) AS week,
+      grouped_week AS week,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
-      sum(user_count) AS user_count,
+      user_count,
       sdk_key
-    FROM klicklab.daily_user_distribution
-    WHERE date BETWEEN toDate('${start}') AND toDate('${end}')
-      AND segment_type = '${type}' AND dist_type = 'device'
-    GROUP BY week, segment_value, dist_type, dist_value, sdk_key
+    FROM (
+      SELECT
+        toStartOfWeek(date) AS grouped_week,
+        segment_value,
+        dist_type,
+        dist_value,
+        sdk_key,
+        sum(user_count) AS user_count
+      FROM klicklab.daily_user_distribution
+      WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+        AND segment_type = '${type}' AND dist_type = 'device'
+      GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
+    ) AS aggregated
   `;
 
   clickhouse.query(ageDistQuery, (err, result) => {
