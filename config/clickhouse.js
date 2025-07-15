@@ -10,8 +10,7 @@ const database = process.env.CLICKHOUSE_DATABASE || 'klicklab';
 console.log('ClickHouse 설정:', { host, port, username, database });
 
 const clickhouse = createClient({
-  host: host,
-  port: parseInt(port),
+  url: `http://${host}:${port}`,
   username: username,
   password: password,
   database: database,
