@@ -70,8 +70,8 @@ function insertClickSummary(type, expr, start, end, callback) {
       '${type}' AS segment_type,
       segment_value,
       sum(total_clicks) AS total_clicks,
-      count(DISTINCT total_users) AS total_users,
-      round(sum(total_clicks) / nullIf(countDistinct(total_users), 0), 1) AS avg_clicks_per_user,
+      sum(total_users) AS total_users,
+      round(sum(total_clicks) / nullIf(sum(total_users), 0), 1) AS avg_clicks_per_user,
       sdk_key
     FROM klicklab.hourly_click_summary
     WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
@@ -92,21 +92,21 @@ function insertTopElements(type, expr, start, end, callback) {
     SELECT *
     FROM (
       SELECT
-        date,
+        toDate(date_time) AS date,
         '${type}' AS segment_type,
         segment_value,
         element,
         sum(total_clicks) AS total_clicks,
-        count(DISTINCT user_count) AS user_count,
+        sum(user_count) AS user_count,
         row_number() OVER (
-          PARTITION BY sdk_key, segment_value, date
+          PARTITION BY sdk_key, segment_value, toDate(date_time)
           ORDER BY sum(total_clicks) DESC
         ) AS rank,
         sdk_key
       FROM klicklab.hourly_top_elements
       WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
         AND segment_type = '${type}'
-      GROUP BY date, segment_value, element, sdk_key
+      GROUP BY toDate(date_time), segment_value, element, sdk_key
     )
     WHERE rank <= 3
   `;
