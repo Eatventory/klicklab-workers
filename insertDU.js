@@ -1,3 +1,4 @@
+require('dotenv').config();
 /* hourly_* → daily_* */
 const clickhouse = require('./config/clickhouse');
 const SEGMENT_LIST = require('./config/segmentList');

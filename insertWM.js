@@ -1,3 +1,4 @@
+require('dotenv').config();
 /* daily_metrics → weekly_metrics */
 const clickhouse = require('./config/clickhouse');
 const dayjs = require("dayjs");
