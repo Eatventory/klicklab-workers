@@ -1,66 +1,70 @@
 require('dotenv').config();
 /* hourly_page_stats → daily_page_stats */
 const clickhouse = require('./config/clickhouse');
-const dayjs = require('dayjs');
+const dayjs = require("dayjs");
 
 const input = process.argv[2];
 let start, end;
 
 if (input) {
   const isDate = /^\d{4}-\d{2}-\d{2}$/.test(input);
-  if (!isDate) {
-    console.error("❌ 날짜 형식이 잘못되었습니다. 예: YYYY-MM-DD");
+  if (isDate) {
+    start = dayjs(input).startOf("day");
+    end = start.add(1, "day");
+  } else {
+    console.error("❌ 날짜 형식이 잘못됨. 예: YYYY-MM-DD");
     process.exit(1);
   }
-  start = dayjs(input).startOf('day');
-  end = start.add(1, 'day');
 } else {
-  end = dayjs().startOf('day');
-  start = end.subtract(1, 'day');
+  end = dayjs().startOf("day");
+  start = end.subtract(1, "day");
 }
 
 const query = `
   INSERT INTO klicklab.daily_page_stats
-  WITH
-    sum(page_views) AS total_views,
-    sum(page_exits) AS total_exits,
-    avg(avg_time_on_page_seconds) AS avg_time
   SELECT
-    toDate(date_time) AS date,
-    page_path,
-    total_views AS page_views,
-    total_exits AS page_exits,
-    if(total_views = 0, 0, round(total_exits / total_views, 3)) AS drop_rate,
-    any(next_pages.to) AS "next_pages.to",
-    any(next_pages.count) AS "next_pages.count",
-    sdk_key,
-    round(avg_time, 2) AS avg_time_on_page_seconds
+    toDate(e.date_time) AS date,
+    count(DISTINCT e.client_id) AS visitors,
+    count(DISTINCT if(past.client_id IS NULL, e.client_id, NULL)) AS new_visitors,
+    count(DISTINCT if(past.client_id IS NOT NULL, e.client_id, NULL)) AS existing_visitors,
+    if(
+      isFinite(avgIf(e.session_duration, e.session_duration > 0)),
+      toUInt32(avgIf(e.session_duration, e.session_duration > 0)),
+      0
+    ) AS avg_session_seconds,
+    e.sdk_key
   FROM (
     SELECT
+      client_id,
       date_time,
-      page_path,
-      page_views,
-      page_exits,
-      next_pages.to,
-      next_pages.count,
       sdk_key,
-      avg_time_on_page_seconds
+      session_duration
     FROM klicklab.hourly_page_stats
-    WHERE date_time >= toDateTime('${start.format('YYYY-MM-DD')} 00:00:00')
-      AND date_time < toDateTime('${end.format('YYYY-MM-DD')} 00:00:00')
-  )
+    WHERE date_time >= toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
+      AND date_time <  toDateTime('${end.format("YYYY-MM-DD HH:mm:ss")}')
+  ) AS e
+  LEFT JOIN (
+    SELECT
+      DISTINCT client_id,
+      sdk_key
+    FROM klicklab.hourly_page_stats
+    WHERE date_time < toDateTime('${start.format("YYYY-MM-DD HH:mm:ss")}')
+  ) AS past
+  ON e.client_id = past.client_id AND e.sdk_key = past.sdk_key
   GROUP BY
-    toDate(date_time), page_path, sdk_key
-  ORDER BY date, page_path, sdk_key;
+    date, e.sdk_key
+  ORDER BY
+    date, e.sdk_key;
 `;
 
-async function run() {
-  try {
-    await clickhouse.command({ query });
-    console.log(`✅ daily_page_stats 집계 완료: ${start.format('YYYY-MM-DD')}`);
-  } catch (err) {
-    console.error('❌ 집계 실패:', err.message);
-  }
+function run() {
+  clickhouse.query(query, (err, result) => {
+    if (err) {
+      console.error("❌ 집계 실패:", err.message);
+    } else {
+      console.log(`✅ 집계 완료: ${start.format()} ~ ${end.format()}`);
+    }
+  });
 }
 
 run();

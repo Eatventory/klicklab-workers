@@ -1,10 +1,10 @@
 require('dotenv').config();
 /* minutes_* → hourly_* */
 const clickhouse = require("./config/clickhouse");
-const SEGMENT_LIST = require("./config/segmentList");
+const SEGMENT_LIST = require('./config/segmentList');
 const dayjs = require("dayjs");
 
-async function run() {
+function run() {
   const input = process.argv[2];
   let start, end;
 
@@ -17,127 +17,163 @@ async function run() {
     start = dayjs(input);
     end = start.add(1, "hour");
   } else {
-    end = dayjs().startOf("hour");
+    const now = dayjs();
+    end = now.startOf("hour");
     start = end.subtract(1, "hour");
   }
 
   const startStr = start.format("YYYY-MM-DD HH:mm:ss");
   const endStr = end.format("YYYY-MM-DD HH:mm:ss");
 
-  for (const { type } of SEGMENT_LIST) {
+  let completedSegments = 0;
+  const totalSegments = SEGMENT_LIST.length;
+
+  for (const { type, expr } of SEGMENT_LIST) {
     console.log(`\n[1시간 집계 시작] ${type}: ${startStr} ~ ${endStr}`);
 
-    await insertClickSummary(type, startStr, endStr);
-    await insertTopElements(type, startStr, endStr);
-    await insertUserDistribution(type, startStr, endStr);
-
-    console.log(`[1시간 집계 완료] ${type}`);
+    processSegment(type, expr, startStr, endStr, () => {
+      completedSegments++;
+      console.log(`[1시간 집계 완료] ${type}`);
+      
+      if (completedSegments === totalSegments) {
+        clickhouse.close();
+      }
+    });
   }
+}
 
-  await clickhouse.close();
+// 세그먼트별 처리
+function processSegment(type, expr, start, end, callback) {
+  let completed = 0;
+  const total = 3; // insertClickSummary, insertTopElements, insertUserDistribution
+
+  insertClickSummary(type, expr, start, end, () => {
+    completed++;
+    if (completed === total) callback();
+  });
+
+  insertTopElements(type, expr, start, end, () => {
+    completed++;
+    if (completed === total) callback();
+  });
+
+  insertUserDistribution(type, expr, start, end, () => {
+    completed++;
+    if (completed === total) callback();
+  });
 }
 
 // 1. 클릭 요약 통계
-async function insertClickSummary(type, start, end) {
+function insertClickSummary(type, expr, start, end, callback) {
   const q = `
     INSERT INTO klicklab.hourly_click_summary
     SELECT
-      date_time,
+      toStartOfHour(date_time) AS date_time,
       '${type}' AS segment_type,
       segment_value,
-      total_clicks,
-      total_users,
-      round(total_clicks / nullIf(total_users, 0), 1) AS avg_clicks_per_user,
+      sum(total_clicks) AS total_clicks,
+      count(DISTINCT total_users) AS total_users,
+      round(sum(total_clicks) / nullIf(countDistinct(total_users), 0), 1) AS avg_clicks_per_user,
       sdk_key
-    FROM (
-      SELECT
-        toStartOfHour(date_time) AS date_time,
-        segment_value,
-        sum(total_clicks) AS total_clicks,
-        sum(total_users) AS total_users,
-        sdk_key
-      FROM klicklab.minutes_click_summary
-      WHERE segment_type = '${type}'
-        AND date_time >= toDateTime('${start}')
-        AND date_time < toDateTime('${end}')
-      GROUP BY date_time, segment_value, sdk_key
-    )
+    FROM klicklab.minutes_click_summary
+    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+      AND segment_type = '${type}'
+    GROUP BY date_time, segment_value, sdk_key
   `;
-  await clickhouse.command({ query: q });
+  clickhouse.query(q, (err, result) => {
+    if (err) {
+      console.error(`❌ insertClickSummary 실패 (${type}):`, err.message);
+    }
+    callback();
+  });
 }
 
 // 2. Top 클릭 요소 (Top 3)
-async function insertTopElements(type, start, end) {
+function insertTopElements(type, expr, start, end, callback) {
   const q = `
     INSERT INTO klicklab.hourly_top_elements
-    SELECT
-      date_time,
-      '${type}' AS segment_type,
-      segment_value,
-      element,
-      total_clicks,
-      user_count,
-      rank,
-      sdk_key
+    SELECT *
     FROM (
       SELECT
-        *,
+        date_time,
+        '${type}' AS segment_type,
+        segment_value,
+        element,
+        sum(total_clicks) AS total_clicks,
+        count(DISTINCT user_count) AS user_count,
         row_number() OVER (
           PARTITION BY sdk_key, segment_value, date_time
-          ORDER BY total_clicks DESC
-        ) AS rank
-      FROM (
-        SELECT
-          toStartOfHour(date_time) AS date_time,
-          segment_value,
-          element,
-          sum(total_clicks) AS total_clicks,
-          sum(user_count) AS user_count,
-          sdk_key
-        FROM klicklab.minutes_top_elements
-        WHERE segment_type = '${type}'
-          AND date_time >= toDateTime('${start}')
-          AND date_time < toDateTime('${end}')
-        GROUP BY date_time, segment_value, element, sdk_key
-      )
-    ) AS ranked
+          ORDER BY sum(total_clicks) DESC
+        ) AS rank,
+        sdk_key
+      FROM klicklab.minutes_top_elements
+      WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+        AND segment_type = '${type}'
+      GROUP BY date_time, segment_value, element, sdk_key
+    )
     WHERE rank <= 3
   `;
-  await clickhouse.command({ query: q });
+  clickhouse.query(q, (err, result) => {
+    if (err) {
+      console.error(`❌ insertTopElements 실패 (${type}):`, err.message);
+    }
+    callback();
+  });
 }
 
 // 3. 사용자 분포
-async function insertUserDistribution(type, start, end) {
-  const q = `
+function insertUserDistribution(type, expr, start, end, callback) {
+  let completed = 0;
+  const total = 2; // ageDistQuery, deviceDistQuery
+
+  const ageDistQuery = `
     INSERT INTO klicklab.hourly_user_distribution
     SELECT
-      hour_time AS date_time,
+      toStartOfHour(date_time) AS date_time,
       '${type}' AS segment_type,
       segment_value,
       dist_type,
       dist_value,
       sum(user_count) AS user_count,
       sdk_key
-    FROM (
-      SELECT
-        toStartOfHour(date_time) AS hour_time,
-        segment_value,
-        dist_type,
-        dist_value,
-        user_count,
-        sdk_key
-      FROM klicklab.minutes_user_distribution
-      WHERE segment_type = '${type}'
-        AND date_time >= toDateTime('${start}')
-        AND date_time < toDateTime('${end}')
-    )
-    GROUP BY hour_time, segment_value, dist_type, dist_value, sdk_key
+    FROM klicklab.minutes_user_distribution
+    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+      AND segment_type = '${type}' AND dist_type = 'ageGroup'
+    GROUP BY date_time, segment_value, dist_type, dist_value, sdk_key
   `;
-  await clickhouse.command({ query: q });
+
+  const deviceDistQuery = `
+    INSERT INTO klicklab.hourly_user_distribution
+    SELECT
+      toStartOfHour(date_time) AS date_time,
+      '${type}' AS segment_type,
+      segment_value,
+      dist_type,
+      dist_value,
+      sum(user_count) AS user_count,
+      sdk_key
+    FROM klicklab.minutes_user_distribution
+    WHERE date_time BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+      AND segment_type = '${type}' AND dist_type = 'device'
+    GROUP BY date_time, segment_value, dist_type, dist_value, sdk_key
+  `;
+
+  clickhouse.query(ageDistQuery, (err, result) => {
+    if (err) {
+      console.error(`❌ insertUserDistribution (age) 실패 (${type}):`, err.message);
+    }
+    completed++;
+    if (completed === total) callback();
+  });
+
+  clickhouse.query(deviceDistQuery, (err, result) => {
+    if (err) {
+      console.error(`❌ insertUserDistribution (device) 실패 (${type}):`, err.message);
+    }
+    completed++;
+    if (completed === total) callback();
+  });
 }
 
 // 실행
-run().catch((err) => {
-  console.error("❌ 집계 실패:", err.message);
-  process.exit(1);
-});
+run();

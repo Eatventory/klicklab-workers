@@ -4,7 +4,7 @@ const clickhouse = require("./config/clickhouse");
 const SEGMENT_LIST = require('./config/segmentList');
 const dayjs = require("dayjs");
 
-async function run() {
+function run() {
   const input = process.argv[2];
   let start, end;
 
@@ -26,21 +26,46 @@ async function run() {
   const startStr = start.format("YYYY-MM-DD HH:mm:ss");
   const endStr = end.format("YYYY-MM-DD HH:mm:ss");
 
+  let completedSegments = 0;
+  const totalSegments = SEGMENT_LIST.length;
+
   for (const { type, expr } of SEGMENT_LIST) {
     console.log(`\n[10분 집계 시작] ${type}: ${startStr} ~ ${endStr}`);
 
-    await insertClickSummary(type, expr, startStr, endStr);
-    await insertTopElements(type, expr, startStr, endStr);
-    await insertUserDistribution(type, expr, startStr, endStr);
-
-    console.log(`[10분 집계 완료] ${type}`);
+    processSegment(type, expr, startStr, endStr, () => {
+      completedSegments++;
+      console.log(`[10분 집계 완료] ${type}`);
+      
+      if (completedSegments === totalSegments) {
+        clickhouse.close();
+      }
+    });
   }
+}
 
-  await clickhouse.close();
+// 세그먼트별 처리
+function processSegment(type, expr, start, end, callback) {
+  let completed = 0;
+  const total = 3; // insertClickSummary, insertTopElements, insertUserDistribution
+
+  insertClickSummary(type, expr, start, end, () => {
+    completed++;
+    if (completed === total) callback();
+  });
+
+  insertTopElements(type, expr, start, end, () => {
+    completed++;
+    if (completed === total) callback();
+  });
+
+  insertUserDistribution(type, expr, start, end, () => {
+    completed++;
+    if (completed === total) callback();
+  });
 }
 
 // 1. 클릭 요약 통계
-async function insertClickSummary(type, expr, start, end) {
+function insertClickSummary(type, expr, start, end, callback) {
   const q = `
     INSERT INTO klicklab.minutes_click_summary
     SELECT
@@ -57,11 +82,16 @@ async function insertClickSummary(type, expr, start, end) {
       AND ${expr} IS NOT NULL
     GROUP BY date_time, segment_value, sdk_key
   `;
-  await clickhouse.command({ query: q });
+  clickhouse.query(q, (err, result) => {
+    if (err) {
+      console.error(`❌ insertClickSummary 실패 (${type}):`, err.message);
+    }
+    callback();
+  });
 }
 
 // 2. Top 클릭 요소 (Top 3)
-async function insertTopElements(type, expr, start, end) {
+function insertTopElements(type, expr, start, end, callback) {
   const q = `
     INSERT INTO klicklab.minutes_top_elements
     SELECT *
@@ -80,11 +110,8 @@ async function insertTopElements(type, expr, start, end) {
         sdk_key
       FROM (
         SELECT
-      toStartOfTenMinutes(timestamp) AS date_time,
-      toStartOfTenMinutes(timestamp) AS date_time,
-      '${type}' AS segment_type,
           toStartOfTenMinutes(timestamp) AS date_time,
-      '${type}' AS segment_type,
+          '${type}' AS segment_type,
           ${expr} AS segment_value,
           target_text AS element,
           count(*) AS total_clicks,
@@ -100,11 +127,19 @@ async function insertTopElements(type, expr, start, end) {
     )
     WHERE rank <= 3
   `;
-  await clickhouse.command({ query: q });
+  clickhouse.query(q, (err, result) => {
+    if (err) {
+      console.error(`❌ insertTopElements 실패 (${type}):`, err.message);
+    }
+    callback();
+  });
 }
 
 // 3. 사용자 분포
-async function insertUserDistribution(type, expr, start, end) {
+function insertUserDistribution(type, expr, start, end, callback) {
+  let completed = 0;
+  const total = 2; // ageDistQuery, deviceDistQuery
+
   const ageDistQuery = `
     INSERT INTO klicklab.minutes_user_distribution
     SELECT
@@ -147,12 +182,22 @@ async function insertUserDistribution(type, expr, start, end) {
     GROUP BY date_time, segment_value, device_type, sdk_key
   `;
 
-  await clickhouse.command({ query: ageDistQuery });
-  await clickhouse.command({ query: deviceDistQuery });
+  clickhouse.query(ageDistQuery, (err, result) => {
+    if (err) {
+      console.error(`❌ insertUserDistribution (age) 실패 (${type}):`, err.message);
+    }
+    completed++;
+    if (completed === total) callback();
+  });
+
+  clickhouse.query(deviceDistQuery, (err, result) => {
+    if (err) {
+      console.error(`❌ insertUserDistribution (device) 실패 (${type}):`, err.message);
+    }
+    completed++;
+    if (completed === total) callback();
+  });
 }
 
 // 실행
-run().catch((err) => {
-  console.error("❌ 집계 실패:", err);
-  process.exit(1);
-});
+run();
