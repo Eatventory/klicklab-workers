@@ -9,7 +9,7 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       CLICKHOUSE_HOST: '10.0.3.77',
-      CLICKHOUSE_PORT: '9000',
+      CLICKHOUSE_PORT: '8123',
       CLICKHOUSE_USERNAME: 'default',
       CLICKHOUSE_PASSWORD: '',
       CLICKHOUSE_DATABASE: 'klicklab'
