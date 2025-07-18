@@ -140,73 +140,103 @@ function insertTopElements(type, expr, start, end, callback) {
 }
 
 function insertUserDistribution(type, expr, start, end, callback) {
-  let completed = 0;
-  const total = 2;
+  let query = '';
 
-  const ageDistQuery = `
-    INSERT INTO klicklab.weekly_user_distribution
-    SELECT
-      grouped_week AS week,
-      '${type}' AS segment_type,
-      segment_value,
-      dist_type,
-      dist_value,
-      user_count,
-      sdk_key
-    FROM (
-      SELECT
-        toStartOfWeek(date) AS grouped_week,
-        segment_value,
-        dist_type,
-        dist_value,
-        sdk_key,
-        sum(user_count) AS user_count
-      FROM klicklab.daily_user_distribution
-      WHERE date >= toDate('${start}') AND date <= toDate('${end}')
-        AND segment_type = '${type}' AND dist_type = 'ageGroup'
-      GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
-    ) AS aggregated
-  `;
+  // 세그먼트 타입별로 다른 분포 로직 적용
+  switch (type) {
+    case 'device_type':
+      query = `
+        INSERT INTO klicklab.weekly_user_distribution
+        SELECT
+          grouped_week AS week,
+          '${type}' AS segment_type,
+          segment_value,
+          dist_type,
+          dist_value,
+          user_count,
+          sdk_key
+        FROM (
+          SELECT
+            toStartOfWeek(date) AS grouped_week,
+            segment_value,
+            dist_type,
+            dist_value,
+            sdk_key,
+            sum(user_count) AS user_count
+          FROM klicklab.daily_user_distribution
+          WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+            AND segment_type = '${type}' AND dist_type = 'device_os'
+          GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
+        ) AS aggregated
+      `;
+      break;
 
-  const deviceDistQuery = `
-    INSERT INTO klicklab.weekly_user_distribution
-    SELECT
-      grouped_week AS week,
-      '${type}' AS segment_type,
-      segment_value,
-      dist_type,
-      dist_value,
-      user_count,
-      sdk_key
-    FROM (
-      SELECT
-        toStartOfWeek(date) AS grouped_week,
-        segment_value,
-        dist_type,
-        dist_value,
-        sdk_key,
-        sum(user_count) AS user_count
-      FROM klicklab.daily_user_distribution
-      WHERE date >= toDate('${start}') AND date <= toDate('${end}')
-        AND segment_type = '${type}' AND dist_type = 'device'
-      GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
-    ) AS aggregated
-  `;
+    case 'user_age':
+    case 'user_gender':
+      query = `
+        INSERT INTO klicklab.weekly_user_distribution
+        SELECT
+          grouped_week AS week,
+          '${type}' AS segment_type,
+          segment_value,
+          dist_type,
+          dist_value,
+          user_count,
+          sdk_key
+        FROM (
+          SELECT
+            toStartOfWeek(date) AS grouped_week,
+            segment_value,
+            dist_type,
+            dist_value,
+            sdk_key,
+            sum(user_count) AS user_count
+          FROM klicklab.daily_user_distribution
+          WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+            AND segment_type = '${type}' AND dist_type = ''
+          GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
+        ) AS aggregated
+      `;
+      break;
 
-  clickhouse.query(ageDistQuery, (err, result) => {
+    case 'country':
+      query = `
+        INSERT INTO klicklab.weekly_user_distribution
+        SELECT
+          grouped_week AS week,
+          '${type}' AS segment_type,
+          segment_value,
+          dist_type,
+          dist_value,
+          user_count,
+          sdk_key
+        FROM (
+          SELECT
+            toStartOfWeek(date) AS grouped_week,
+            segment_value,
+            dist_type,
+            dist_value,
+            sdk_key,
+            sum(user_count) AS user_count
+          FROM klicklab.daily_user_distribution
+          WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+            AND segment_type = '${type}' AND dist_type = 'city'
+          GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
+        ) AS aggregated
+      `;
+      break;
+
+    default:
+      console.log(`⚠️ 알 수 없는 세그먼트 타입: ${type}`);
+      callback();
+      return;
+  }
+
+  clickhouse.query(query, (err, result) => {
     if (err) {
-      console.error(`❌ insertUserDistribution (age) 실패 (${type}):`, err.message);
+      console.error(`❌ insertUserDistribution 실패 (${type}):`, err.message);
     }
-    completed++;
-    if (completed === total) callback();
-  });
-
-  clickhouse.query(deviceDistQuery, (err, result) => {
-    if (err) {
-      console.error(`❌ insertUserDistribution (device) 실패 (${type}):`, err.message);
-    }
-    completed++;
-    if (completed === total) callback();
+    callback();
   });
 }
 
