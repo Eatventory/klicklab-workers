@@ -154,10 +154,10 @@ function insertUserDistribution(type, expr, start, end, callback) {
           ${expr} AS segment_value,
           'device_os' AS dist_type,
           CASE
-            WHEN device_type = 'desktop' AND os_name = 'Windows' THEN 'Windows'
-            WHEN device_type = 'desktop' AND os_name = 'macOS' THEN 'macOS'
-            WHEN device_type = 'mobile' AND os_name = 'Android' THEN 'Android'
-            WHEN device_type = 'mobile' AND os_name = 'iOS' THEN 'iOS'
+            WHEN device_type = 'desktop' AND device_os = 'Windows' THEN 'Windows'
+            WHEN device_type = 'desktop' AND device_os = 'macOS' THEN 'macOS'
+            WHEN device_type = 'mobile' AND device_os = 'Android' THEN 'Android'
+            WHEN device_type = 'mobile' AND device_os = 'iOS' THEN 'iOS'
             ELSE 'Other'
           END AS dist_value,
           count(DISTINCT client_id) AS user_count,
@@ -165,7 +165,7 @@ function insertUserDistribution(type, expr, start, end, callback) {
         FROM klicklab.events
         WHERE event_name = 'auto_click'
           AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-          AND ${expr} IS NOT NULL AND length(os_name) > 0
+          AND ${expr} IS NOT NULL AND length(device_os) > 0
         GROUP BY date_time, segment_value, dist_value, sdk_key
       `;
       break;
