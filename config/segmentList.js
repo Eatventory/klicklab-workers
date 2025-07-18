@@ -1,6 +1,4 @@
 const SEGMENT_LIST = [
-  { type: "user_gender", expr: "user_gender" },
-  { type: "traffic_source", expr: "traffic_source" },
   { type: "device_type", expr: "device_type" },
   {
     type: "user_age",
@@ -14,6 +12,8 @@ const SEGMENT_LIST = [
       ELSE 'unknown'
     END`,
   },
+  { type: "user_gender", expr: "user_gender" },
+  { type: "country", expr: "country" },
 ];
 
 module.exports = SEGMENT_LIST;
