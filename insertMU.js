@@ -141,65 +141,103 @@ function insertTopElements(type, expr, start, end, callback) {
 
 // 3. 사용자 분포
 function insertUserDistribution(type, expr, start, end, callback) {
-  let completed = 0;
-  const total = 2; // ageDistQuery, deviceDistQuery
+  let query = '';
 
-  const ageDistQuery = `
-    INSERT INTO klicklab.minutes_user_distribution
-    SELECT
-      toStartOfTenMinutes(timestamp) AS date_time,
-      '${type}' AS segment_type,
-      ${expr} AS segment_value,
-      'ageGroup' AS dist_type,
-      CASE
-        WHEN user_age BETWEEN 10 AND 19 THEN '10s'
-        WHEN user_age BETWEEN 20 AND 29 THEN '20s'
-        WHEN user_age BETWEEN 30 AND 39 THEN '30s'
-        WHEN user_age BETWEEN 40 AND 49 THEN '40s'
-        WHEN user_age BETWEEN 50 AND 59 THEN '50s'
-        WHEN user_age >= 60 THEN '60s+'
-        ELSE 'unknown'
-      END AS dist_value,
-      count(DISTINCT client_id) AS user_count,
-      sdk_key
-    FROM klicklab.events
-    WHERE event_name = 'auto_click'
-      AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND ${expr} IS NOT NULL AND user_age IS NOT NULL
-    GROUP BY date_time, segment_value, dist_value, sdk_key
-  `;
+  // 세그먼트 타입별로 다른 분포 로직 적용
+  switch (type) {
+    case 'device_type':
+      query = `
+        INSERT INTO klicklab.minutes_user_distribution
+        SELECT
+          toStartOfTenMinutes(timestamp) AS date_time,
+          '${type}' AS segment_type,
+          ${expr} AS segment_value,
+          'device_os' AS dist_type,
+          CASE
+            WHEN device_type = 'desktop' AND os_name = 'Windows' THEN 'Windows'
+            WHEN device_type = 'desktop' AND os_name = 'macOS' THEN 'macOS'
+            WHEN device_type = 'mobile' AND os_name = 'Android' THEN 'Android'
+            WHEN device_type = 'mobile' AND os_name = 'iOS' THEN 'iOS'
+            ELSE 'Other'
+          END AS dist_value,
+          count(DISTINCT client_id) AS user_count,
+          sdk_key
+        FROM klicklab.events
+        WHERE event_name = 'auto_click'
+          AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+          AND ${expr} IS NOT NULL AND length(os_name) > 0
+        GROUP BY date_time, segment_value, dist_value, sdk_key
+      `;
+      break;
 
-  const deviceDistQuery = `
-    INSERT INTO klicklab.minutes_user_distribution
-    SELECT
-      toStartOfTenMinutes(timestamp) AS date_time,
-      '${type}' AS segment_type,
-      ${expr} AS segment_value,
-      'device' AS dist_type,
-      device_type AS dist_value,
-      count(DISTINCT client_id) AS user_count,
-      sdk_key
-    FROM klicklab.events
-    WHERE event_name = 'auto_click'
-      AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
-      AND ${expr} IS NOT NULL AND length(device_type) > 0
-    GROUP BY date_time, segment_value, device_type, sdk_key
-  `;
+    case 'user_age':
+      query = `
+        INSERT INTO klicklab.minutes_user_distribution
+        SELECT
+          toStartOfTenMinutes(timestamp) AS date_time,
+          '${type}' AS segment_type,
+          ${expr} AS segment_value,
+          '' AS dist_type,
+          '' AS dist_value,
+          count(DISTINCT client_id) AS user_count,
+          sdk_key
+        FROM klicklab.events
+        WHERE event_name = 'auto_click'
+          AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+          AND ${expr} IS NOT NULL
+        GROUP BY date_time, segment_value, sdk_key
+      `;
+      break;
 
-  clickhouse.query(ageDistQuery, (err, result) => {
+    case 'user_gender':
+      query = `
+        INSERT INTO klicklab.minutes_user_distribution
+        SELECT
+          toStartOfTenMinutes(timestamp) AS date_time,
+          '${type}' AS segment_type,
+          ${expr} AS segment_value,
+          '' AS dist_type,
+          '' AS dist_value,
+          count(DISTINCT client_id) AS user_count,
+          sdk_key
+        FROM klicklab.events
+        WHERE event_name = 'auto_click'
+          AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+          AND ${expr} IS NOT NULL
+        GROUP BY date_time, segment_value, sdk_key
+      `;
+      break;
+
+    case 'country':
+      query = `
+        INSERT INTO klicklab.minutes_user_distribution
+        SELECT
+          toStartOfTenMinutes(timestamp) AS date_time,
+          '${type}' AS segment_type,
+          ${expr} AS segment_value,
+          'city' AS dist_type,
+          city AS dist_value,
+          count(DISTINCT client_id) AS user_count,
+          sdk_key
+        FROM klicklab.events
+        WHERE event_name = 'auto_click'
+          AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+          AND ${expr} IS NOT NULL AND length(city) > 0
+        GROUP BY date_time, segment_value, dist_value, sdk_key
+      `;
+      break;
+
+    default:
+      console.log(`⚠️ 알 수 없는 세그먼트 타입: ${type}`);
+      callback();
+      return;
+  }
+
+  clickhouse.query(query, (err, result) => {
     if (err) {
-      console.error(`❌ insertUserDistribution (age) 실패 (${type}):`, err.message);
+      console.error(`❌ insertUserDistribution 실패 (${type}):`, err.message);
     }
-    completed++;
-    if (completed === total) callback();
-  });
-
-  clickhouse.query(deviceDistQuery, (err, result) => {
-    if (err) {
-      console.error(`❌ insertUserDistribution (device) 실패 (${type}):`, err.message);
-    }
-    completed++;
-    if (completed === total) callback();
+    callback();
   });
 }
 
