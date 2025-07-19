@@ -15,14 +15,14 @@ function run() {
   if (input) {
     const isDate = /^\d{4}-\d{2}-\d{2}$/.test(input);
     if (isDate) {
-      start = dayjs(input).startOf("week");
+      start = dayjs(input).startOf("isoWeek");  // 월요일부터 시작
       end = start.add(1, "week");
     } else {
       console.error("❌ 날짜 형식이 잘못됨. 예: YYYY-MM-DD");
       process.exit(1);
     }
   } else {
-    end = dayjs().startOf("week");
+    end = dayjs().startOf("isoWeek");  // 월요일부터 시작
     start = end.subtract(1, "week");
   }
 
