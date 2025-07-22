@@ -1,11 +1,11 @@
-require('dotenv').config();
+require("dotenv").config();
 
 // 한국 시간대 설정
-process.env.TZ = 'Asia/Seoul';
+process.env.TZ = "Asia/Seoul";
 
 /* minutes_* → hourly_* */
 const clickhouse = require("./config/clickhouse");
-const SEGMENT_LIST = require('./config/segmentList');
+const SEGMENT_LIST = require("./config/segmentList");
 const dayjs = require("dayjs");
 
 function run() {
@@ -39,7 +39,7 @@ function run() {
     processSegment(type, expr, startStr, endStr, () => {
       completedSegments++;
       console.log(`[1시간 집계 완료] ${type}`);
-      
+
       if (completedSegments === totalSegments) {
         console.log("✅ 모든 세그먼트 집계 완료");
       }
@@ -145,11 +145,11 @@ function insertTopElements(type, expr, start, end, callback) {
 
 // 3. 사용자 분포
 function insertUserDistribution(type, expr, start, end, callback) {
-  let query = '';
+  let query = "";
 
   // 세그먼트 타입별로 다른 분포 로직 적용
   switch (type) {
-    case 'device_type':
+    case "device_type":
       query = `
         INSERT INTO klicklab.hourly_user_distribution
         SELECT
@@ -176,8 +176,8 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'user_age':
-    case 'user_gender':
+    case "user_age":
+    case "user_gender":
       query = `
         INSERT INTO klicklab.hourly_user_distribution
         SELECT
@@ -204,7 +204,7 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'country':
+    case "country":
       query = `
         INSERT INTO klicklab.hourly_user_distribution
         SELECT
@@ -226,6 +226,33 @@ function insertUserDistribution(type, expr, start, end, callback) {
           FROM klicklab.minutes_user_distribution
           WHERE date_time >= toDateTime('${start}') AND date_time <= toDateTime('${end}')
             AND segment_type = '${type}' AND dist_type = 'city'
+          GROUP BY toStartOfHour(date_time), segment_value, dist_type, dist_value, sdk_key
+        ) AS aggregated
+      `;
+      break;
+
+    case "traffic_source":
+      query = `
+        INSERT INTO klicklab.hourly_user_distribution
+        SELECT
+          grouped_time AS date_time,
+          '${type}' AS segment_type,
+          segment_value,
+          dist_type,
+          dist_value,
+          user_count,
+          sdk_key
+        FROM (
+          SELECT
+            toStartOfHour(date_time) AS grouped_time,
+            segment_value,
+            dist_type,
+            dist_value,
+            sdk_key,
+            sum(user_count) AS user_count
+          FROM klicklab.minutes_user_distribution
+          WHERE date_time >= toDateTime('${start}') AND date_time <= toDateTime('${end}')
+            AND segment_type = '${type}' AND dist_type = 'device'
           GROUP BY toStartOfHour(date_time), segment_value, dist_type, dist_value, sdk_key
         ) AS aggregated
       `;
