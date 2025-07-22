@@ -1,11 +1,11 @@
-require('dotenv').config();
+require("dotenv").config();
 
 // 한국 시간대 설정
-process.env.TZ = 'Asia/Seoul';
+process.env.TZ = "Asia/Seoul";
 
 /* daily_* → weekly_* */
 const clickhouse = require("./config/clickhouse");
-const SEGMENT_LIST = require('./config/segmentList');
+const SEGMENT_LIST = require("./config/segmentList");
 const dayjs = require("dayjs");
 
 function run() {
@@ -15,14 +15,14 @@ function run() {
   if (input) {
     const isDate = /^\d{4}-\d{2}-\d{2}$/.test(input);
     if (isDate) {
-      start = dayjs(input).startOf("isoWeek");  // 월요일부터 시작
+      start = dayjs(input).startOf("isoWeek"); // 월요일부터 시작
       end = start.add(1, "week");
     } else {
       console.error("❌ 날짜 형식이 잘못됨. 예: YYYY-MM-DD");
       process.exit(1);
     }
   } else {
-    end = dayjs().startOf("isoWeek");  // 월요일부터 시작
+    end = dayjs().startOf("isoWeek"); // 월요일부터 시작
     start = end.subtract(1, "week");
   }
 
@@ -38,7 +38,7 @@ function run() {
     processSegment(type, expr, startStr, endStr, () => {
       completedSegments++;
       console.log(`[주간 집계 완료] ${type}`);
-      
+
       if (completedSegments === totalSegments) {
         console.log("✅ 모든 세그먼트 집계 완료");
       }
@@ -140,11 +140,11 @@ function insertTopElements(type, expr, start, end, callback) {
 }
 
 function insertUserDistribution(type, expr, start, end, callback) {
-  let query = '';
+  let query = "";
 
   // 세그먼트 타입별로 다른 분포 로직 적용
   switch (type) {
-    case 'device_type':
+    case "device_type":
       query = `
         INSERT INTO klicklab.weekly_user_distribution
         SELECT
@@ -171,8 +171,8 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'user_age':
-    case 'user_gender':
+    case "user_age":
+    case "user_gender":
       query = `
         INSERT INTO klicklab.weekly_user_distribution
         SELECT
@@ -199,7 +199,7 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'country':
+    case "country":
       query = `
         INSERT INTO klicklab.weekly_user_distribution
         SELECT
@@ -221,6 +221,33 @@ function insertUserDistribution(type, expr, start, end, callback) {
           FROM klicklab.daily_user_distribution
           WHERE date >= toDate('${start}') AND date <= toDate('${end}')
             AND segment_type = '${type}' AND dist_type = 'city'
+          GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
+        ) AS aggregated
+      `;
+      break;
+
+    case "traffic_source":
+      query = `
+        INSERT INTO klicklab.weekly_user_distribution
+        SELECT
+          grouped_week AS week,
+          '${type}' AS segment_type,
+          segment_value,
+          dist_type,
+          dist_value,
+          user_count,
+          sdk_key
+        FROM (
+          SELECT
+            toStartOfWeek(date) AS grouped_week,
+            segment_value,
+            dist_type,
+            dist_value,
+            sdk_key,
+            sum(user_count) AS user_count
+          FROM klicklab.daily_user_distribution
+          WHERE date >= toDate('${start}') AND date <= toDate('${end}')
+            AND segment_type = '${type}' AND dist_type = 'device'
           GROUP BY toStartOfWeek(date), segment_value, dist_type, dist_value, sdk_key
         ) AS aggregated
       `;
