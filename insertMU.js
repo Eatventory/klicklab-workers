@@ -1,11 +1,11 @@
-require('dotenv').config();
+require("dotenv").config();
 
 // 한국 시간대 설정
-process.env.TZ = 'Asia/Seoul';
+process.env.TZ = "Asia/Seoul";
 
 /* events → minutes_user_stats */
 const clickhouse = require("./config/clickhouse");
-const SEGMENT_LIST = require('./config/segmentList');
+const SEGMENT_LIST = require("./config/segmentList");
 const dayjs = require("dayjs");
 
 function run() {
@@ -39,7 +39,7 @@ function run() {
     processSegment(type, expr, startStr, endStr, () => {
       completedSegments++;
       console.log(`[10분 집계 완료] ${type}`);
-      
+
       if (completedSegments === totalSegments) {
         console.log("✅ 모든 세그먼트 집계 완료");
       }
@@ -141,11 +141,11 @@ function insertTopElements(type, expr, start, end, callback) {
 
 // 3. 사용자 분포
 function insertUserDistribution(type, expr, start, end, callback) {
-  let query = '';
+  let query = "";
 
   // 세그먼트 타입별로 다른 분포 로직 적용
   switch (type) {
-    case 'device_type':
+    case "device_type":
       query = `
         INSERT INTO klicklab.minutes_user_distribution
         SELECT
@@ -170,7 +170,7 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'user_age':
+    case "user_age":
       query = `
         INSERT INTO klicklab.minutes_user_distribution
         SELECT
@@ -189,7 +189,7 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'user_gender':
+    case "user_gender":
       query = `
         INSERT INTO klicklab.minutes_user_distribution
         SELECT
@@ -208,7 +208,7 @@ function insertUserDistribution(type, expr, start, end, callback) {
       `;
       break;
 
-    case 'country':
+    case "country":
       query = `
         INSERT INTO klicklab.minutes_user_distribution
         SELECT
@@ -223,6 +223,25 @@ function insertUserDistribution(type, expr, start, end, callback) {
         WHERE event_name = 'auto_click'
           AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
           AND ${expr} IS NOT NULL AND length(city) > 0
+        GROUP BY date_time, segment_value, dist_value, sdk_key
+      `;
+      break;
+
+    case "traffic_source":
+      query = `
+        INSERT INTO klicklab.minutes_user_distribution
+        SELECT
+          toStartOfTenMinutes(timestamp) AS date_time,
+          '${type}' AS segment_type,
+          ${expr} AS segment_value,
+          'device' AS dist_type,
+          device_type AS dist_value,
+          count(DISTINCT client_id) AS user_count,
+          sdk_key
+        FROM klicklab.events
+        WHERE event_name = 'auto_click'
+          AND timestamp BETWEEN toDateTime('${start}') AND toDateTime('${end}')
+          AND ${expr} IS NOT NULL AND length(device_type) > 0
         GROUP BY date_time, segment_value, dist_value, sdk_key
       `;
       break;
