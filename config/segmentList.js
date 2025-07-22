@@ -14,6 +14,7 @@ const SEGMENT_LIST = [
   },
   { type: "user_gender", expr: "user_gender" },
   { type: "country", expr: "country" },
+  { type: "traffic_source", expr: "traffic_source" },
 ];
 
 module.exports = SEGMENT_LIST;
